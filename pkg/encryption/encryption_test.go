@@ -1,6 +1,8 @@
 package encryption
 
 import (
+	"bytes"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,6 +24,17 @@ func mockPasswordInput(t *testing.T, password string) func() {
 	// Return cleanup function
 	return func() {
 		kdf.GetKey = originalGetKey
+	}
+}
+
+// generateLargeFile creates a file with random content of specified size
+func generateLargeFile(t *testing.T, path string, size int) {
+	data := make([]byte, size)
+	if _, err := rand.Read(data); err != nil {
+		t.Fatalf("Failed to generate random data: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
 	}
 }
 
@@ -105,6 +118,60 @@ func TestEncryptDecryptFile(t *testing.T) {
 				t.Errorf("Decrypted content = %v, want %v", string(decryptedContent), tt.content)
 			}
 		})
+	}
+}
+
+func TestLargeFileEncryption(t *testing.T) {
+	// Create a temporary directory for test files
+	tempDir, err := os.MkdirTemp("", "encryption-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Mock password input
+	cleanup := mockPasswordInput(t, "test-password-123")
+	defer cleanup()
+
+	// Test with a file larger than chunk size (64KB)
+	fileSize := 128 * 1024 // 128KB
+	inputPath := filepath.Join(tempDir, "large_input.bin")
+	encryptedPath := filepath.Join(tempDir, "large_encrypted.bin")
+	decryptedPath := filepath.Join(tempDir, "large_decrypted.bin")
+
+	// Generate a large file with random content
+	generateLargeFile(t, inputPath, fileSize)
+
+	// Read original content for comparison
+	originalContent, err := os.ReadFile(inputPath)
+	if err != nil {
+		t.Fatalf("Failed to read original file: %v", err)
+	}
+
+	// Test encryption
+	if err := EncryptFile(inputPath, encryptedPath); err != nil {
+		t.Fatalf("EncryptFile() error = %v", err)
+	}
+
+	// Test decryption
+	if err := DecryptFile(encryptedPath, decryptedPath); err != nil {
+		t.Fatalf("DecryptFile() error = %v", err)
+	}
+
+	// Read decrypted content
+	decryptedContent, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted file: %v", err)
+	}
+
+	// Compare original and decrypted content
+	if !bytes.Equal(decryptedContent, originalContent) {
+		t.Error("Decrypted content does not match original content")
+	}
+
+	// Verify file sizes
+	if len(decryptedContent) != fileSize {
+		t.Errorf("Decrypted file size = %d, want %d", len(decryptedContent), fileSize)
 	}
 }
 
