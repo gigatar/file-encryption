@@ -1,3 +1,4 @@
+// Package kdf_test contains tests for the key derivation functionality.
 package kdf
 
 import (
@@ -5,6 +6,12 @@ import (
 	"testing"
 )
 
+// TestDeriveKey tests the core key derivation functionality with various inputs.
+// It verifies:
+//   - Key length is correct (32 bytes)
+//   - Same input produces same output (determinism)
+//   - Different passwords produce different keys
+//   - Different salts produce different keys
 func TestDeriveKey(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -69,6 +76,12 @@ func TestDeriveKey(t *testing.T) {
 	}
 }
 
+// TestGetKey tests the password input and key derivation wrapper.
+// It verifies:
+//   - Key derivation works with valid passwords
+//   - Empty passwords are handled correctly
+//   - Key length is correct (32 bytes)
+//   - Same input produces same output (determinism)
 func TestGetKey(t *testing.T) {
 	// Save original function
 	originalGetKey := GetKey
@@ -130,6 +143,12 @@ func TestGetKey(t *testing.T) {
 	}
 }
 
+// TestArgon2Parameters verifies that the Argon2id parameters are set to reasonable values.
+// It checks:
+//   - timeCost is at least 1
+//   - memoryCost is at least 64KB
+//   - parallelism is at least 1
+//   - Key derivation works with minimum parameters
 func TestArgon2Parameters(t *testing.T) {
 	// Test that the Argon2 parameters are reasonable
 	if timeCost < 1 {

@@ -1,3 +1,6 @@
+// Package main implements a command-line tool for file encryption and decryption.
+// It provides a simple interface to encrypt and decrypt files using AES-GCM-SIV
+// encryption with password-based key derivation.
 package main
 
 import (
@@ -8,16 +11,29 @@ import (
 	"github.com/gigatar/file-encryptor/pkg/encryption"
 )
 
+// logFatal prints an error message and exits with status code 1.
 func logFatal(msg string) {
 	fmt.Println(msg)
 	os.Exit(1)
 }
 
+// main is the entry point for the file encryption tool.
+// It parses command-line arguments and performs the requested operation:
+//   - encrypt: Encrypts a file using AES-GCM-SIV
+//   - decrypt: Decrypts a previously encrypted file
+//
+// Usage:
+//
+//	file-encryptor [encrypt|decrypt] -in <input> -out <output>
+//
+// Flags:
+//
+//	-in:  Path to the input file
+//	-out: Path to the output file
 func main() {
 	// Check for at least one positional argument
 	if len(os.Args) < 4 {
 		logFatal(fmt.Sprintf("Usage: %s [encrypt|decrypt] -in <input> -out <output>", os.Args[0]))
-
 	}
 
 	// First arg is the mode

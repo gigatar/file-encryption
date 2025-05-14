@@ -28,3 +28,4 @@ go.work.sum
 testdata/
 
 .DS_Store
+file-encryption

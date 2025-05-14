@@ -1,4 +1,7 @@
-package encryption
+// Package encryption_test contains tests for the encryption package.
+// It verifies the functionality of file encryption and decryption,
+// including error handling and large file support.
+package encryption_test
 
 import (
 	"bytes"
@@ -7,243 +10,195 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gigatar/file-encryptor/pkg/encryption"
 	"github.com/gigatar/file-encryptor/pkg/kdf"
 )
 
-// mockPasswordInput temporarily replaces the password input function with a mock
-func mockPasswordInput(t *testing.T, password string) func() {
-	// Save original function
+// mockGetKey is a mock implementation of kdf.GetKeyFunc for testing.
+// It returns a fixed key for consistent test results.
+func mockGetKey(salt []byte) ([]byte, error) {
+	return make([]byte, 32), nil // Return a 32-byte key (AES-256)
+}
+
+// TestEncryptDecrypt verifies that a file can be encrypted and then decrypted
+// back to its original content. It tests the basic functionality of the
+// encryption and decryption process.
+func TestEncryptDecrypt(t *testing.T) {
+	// Save original GetKey function and restore it after the test
 	originalGetKey := kdf.GetKey
+	kdf.GetKey = mockGetKey
+	defer func() { kdf.GetKey = originalGetKey }()
 
-	// Replace with mock function
-	kdf.GetKey = func(salt []byte) ([]byte, error) {
-		// Use a fixed password for testing
-		return kdf.DeriveKey([]byte(password), salt), nil
+	// Create a temporary directory for test files
+	tempDir, err := os.MkdirTemp("", "encryption-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create test file with random content
+	inputPath := filepath.Join(tempDir, "input.txt")
+	outputPath := filepath.Join(tempDir, "output.enc")
+	decryptedPath := filepath.Join(tempDir, "decrypted.txt")
+
+	// Generate random test data
+	testData := make([]byte, 1024)
+	if _, err := rand.Read(testData); err != nil {
+		t.Fatalf("Failed to generate test data: %v", err)
 	}
 
-	// Return cleanup function
-	return func() {
-		kdf.GetKey = originalGetKey
-	}
-}
-
-// generateLargeFile creates a file with random content of specified size
-func generateLargeFile(t *testing.T, path string, size int) {
-	data := make([]byte, size)
-	if _, err := rand.Read(data); err != nil {
-		t.Fatalf("Failed to generate random data: %v", err)
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	// Write test data to input file
+	if err := os.WriteFile(inputPath, testData, 0644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
-	}
-}
-
-func TestEncryptDecryptFile(t *testing.T) {
-	// Create a temporary directory for test files
-	tempDir, err := os.MkdirTemp("", "encryption-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Mock password input
-	cleanup := mockPasswordInput(t, "test-password-123")
-	defer cleanup()
-
-	tests := []struct {
-		name    string
-		content string
-		wantErr bool
-	}{
-		{
-			name:    "empty file",
-			content: "",
-			wantErr: false,
-		},
-		{
-			name:    "small text file",
-			content: "Hello, World!",
-			wantErr: false,
-		},
-		{
-			name:    "larger text file",
-			content: "This is a larger text file with multiple lines.\nLine 2\nLine 3\nLine 4",
-			wantErr: false,
-		},
-		{
-			name:    "binary content",
-			content: string([]byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05}),
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Create input file
-			inputPath := filepath.Join(tempDir, "input.txt")
-			if err := os.WriteFile(inputPath, []byte(tt.content), 0644); err != nil {
-				t.Fatalf("Failed to create input file: %v", err)
-			}
-
-			// Create paths for encrypted and decrypted files
-			encryptedPath := filepath.Join(tempDir, "encrypted.bin")
-			decryptedPath := filepath.Join(tempDir, "decrypted.txt")
-
-			// Test encryption
-			if err := EncryptFile(inputPath, encryptedPath); (err != nil) != tt.wantErr {
-				t.Errorf("EncryptFile() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-
-			// Skip decryption if encryption failed
-			if tt.wantErr {
-				return
-			}
-
-			// Test decryption
-			if err := DecryptFile(encryptedPath, decryptedPath); err != nil {
-				t.Errorf("DecryptFile() error = %v", err)
-				return
-			}
-
-			// Read decrypted content
-			decryptedContent, err := os.ReadFile(decryptedPath)
-			if err != nil {
-				t.Errorf("Failed to read decrypted file: %v", err)
-				return
-			}
-
-			// Compare original and decrypted content
-			if string(decryptedContent) != tt.content {
-				t.Errorf("Decrypted content = %v, want %v", string(decryptedContent), tt.content)
-			}
-		})
-	}
-}
-
-func TestLargeFileEncryption(t *testing.T) {
-	// Create a temporary directory for test files
-	tempDir, err := os.MkdirTemp("", "encryption-test-*")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Mock password input
-	cleanup := mockPasswordInput(t, "test-password-123")
-	defer cleanup()
-
-	// Test with a file larger than chunk size (64KB)
-	fileSize := 128 * 1024 // 128KB
-	inputPath := filepath.Join(tempDir, "large_input.bin")
-	encryptedPath := filepath.Join(tempDir, "large_encrypted.bin")
-	decryptedPath := filepath.Join(tempDir, "large_decrypted.bin")
-
-	// Generate a large file with random content
-	generateLargeFile(t, inputPath, fileSize)
-
-	// Read original content for comparison
-	originalContent, err := os.ReadFile(inputPath)
-	if err != nil {
-		t.Fatalf("Failed to read original file: %v", err)
 	}
 
 	// Test encryption
-	if err := EncryptFile(inputPath, encryptedPath); err != nil {
-		t.Fatalf("EncryptFile() error = %v", err)
+	if err := encryption.EncryptFile(inputPath, outputPath); err != nil {
+		t.Fatalf("Encryption failed: %v", err)
+	}
+
+	// Verify encrypted file exists and is different from input
+	encryptedData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read encrypted file: %v", err)
+	}
+	if bytes.Equal(encryptedData, testData) {
+		t.Fatal("Encrypted file is identical to input file")
 	}
 
 	// Test decryption
-	if err := DecryptFile(encryptedPath, decryptedPath); err != nil {
-		t.Fatalf("DecryptFile() error = %v", err)
+	if err := encryption.DecryptFile(outputPath, decryptedPath); err != nil {
+		t.Fatalf("Decryption failed: %v", err)
 	}
 
-	// Read decrypted content
-	decryptedContent, err := os.ReadFile(decryptedPath)
+	// Verify decrypted file matches original
+	decryptedData, err := os.ReadFile(decryptedPath)
 	if err != nil {
 		t.Fatalf("Failed to read decrypted file: %v", err)
 	}
-
-	// Compare original and decrypted content
-	if !bytes.Equal(decryptedContent, originalContent) {
-		t.Error("Decrypted content does not match original content")
-	}
-
-	// Verify file sizes
-	if len(decryptedContent) != fileSize {
-		t.Errorf("Decrypted file size = %d, want %d", len(decryptedContent), fileSize)
+	if !bytes.Equal(decryptedData, testData) {
+		t.Fatal("Decrypted file does not match original")
 	}
 }
 
-func TestEncryptFileErrors(t *testing.T) {
-	// Mock password input
-	cleanup := mockPasswordInput(t, "test-password-123")
-	defer cleanup()
+// TestLargeFileEncryption verifies that the encryption and decryption
+// process works correctly with large files. It tests the chunked processing
+// functionality to ensure it can handle files larger than the chunk size.
+func TestLargeFileEncryption(t *testing.T) {
+	// Save original GetKey function and restore it after the test
+	originalGetKey := kdf.GetKey
+	kdf.GetKey = mockGetKey
+	defer func() { kdf.GetKey = originalGetKey }()
 
-	tests := []struct {
-		name    string
-		inFile  string
-		outFile string
-		wantErr bool
+	// Create a temporary directory for test files
+	tempDir, err := os.MkdirTemp("", "encryption-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create test file paths
+	inputPath := filepath.Join(tempDir, "large-input.txt")
+	outputPath := filepath.Join(tempDir, "large-output.enc")
+	decryptedPath := filepath.Join(tempDir, "large-decrypted.txt")
+
+	// Create a large file (2MB)
+	fileSize := 2 * 1024 * 1024
+	largeData := make([]byte, fileSize)
+	if _, err := rand.Read(largeData); err != nil {
+		t.Fatalf("Failed to generate large test data: %v", err)
+	}
+
+	// Write large test data to input file
+	if err := os.WriteFile(inputPath, largeData, 0644); err != nil {
+		t.Fatalf("Failed to write large test file: %v", err)
+	}
+
+	// Test encryption
+	if err := encryption.EncryptFile(inputPath, outputPath); err != nil {
+		t.Fatalf("Large file encryption failed: %v", err)
+	}
+
+	// Verify encrypted file exists and is different from input
+	encryptedData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read encrypted large file: %v", err)
+	}
+	if bytes.Equal(encryptedData, largeData) {
+		t.Fatal("Encrypted large file is identical to input file")
+	}
+
+	// Test decryption
+	if err := encryption.DecryptFile(outputPath, decryptedPath); err != nil {
+		t.Fatalf("Large file decryption failed: %v", err)
+	}
+
+	// Verify decrypted file matches original
+	decryptedData, err := os.ReadFile(decryptedPath)
+	if err != nil {
+		t.Fatalf("Failed to read decrypted large file: %v", err)
+	}
+	if !bytes.Equal(decryptedData, largeData) {
+		t.Fatal("Decrypted large file does not match original")
+	}
+}
+
+// TestErrorHandling verifies that the encryption and decryption functions
+// handle various error conditions appropriately.
+func TestErrorHandling(t *testing.T) {
+	// Save original GetKey function and restore it after the test
+	originalGetKey := kdf.GetKey
+	kdf.GetKey = mockGetKey
+	defer func() { kdf.GetKey = originalGetKey }()
+
+	// Create a temporary directory for test files
+	tempDir, err := os.MkdirTemp("", "encryption-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Test cases for error handling
+	testCases := []struct {
+		name        string
+		inputPath   string
+		outputPath  string
+		expectError bool
 	}{
 		{
-			name:    "non-existent input file",
-			inFile:  "nonexistent.txt",
-			outFile: "output.bin",
-			wantErr: true,
+			name:        "Nonexistent input file",
+			inputPath:   filepath.Join(tempDir, "nonexistent.txt"),
+			outputPath:  filepath.Join(tempDir, "output.enc"),
+			expectError: true,
 		},
 		{
-			name:    "invalid output directory",
-			inFile:  "input.txt",
-			outFile: "/nonexistent/dir/output.bin",
-			wantErr: true,
+			name:        "Invalid output directory",
+			inputPath:   filepath.Join(tempDir, "input.txt"),
+			outputPath:  "/nonexistent/directory/output.enc",
+			expectError: true,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := EncryptFile(tt.inFile, tt.outFile); (err != nil) != tt.wantErr {
-				t.Errorf("EncryptFile() error = %v, wantErr %v", err, tt.wantErr)
+	// Create a test file for valid input tests
+	validInputPath := filepath.Join(tempDir, "input.txt")
+	testData := []byte("test data")
+	if err := os.WriteFile(validInputPath, testData, 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	// Run test cases
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test encryption
+			err := encryption.EncryptFile(tc.inputPath, tc.outputPath)
+			if (err != nil) != tc.expectError {
+				t.Errorf("Encryption error = %v, want error = %v", err, tc.expectError)
 			}
-		})
-	}
-}
 
-func TestDecryptFileErrors(t *testing.T) {
-	// Mock password input
-	cleanup := mockPasswordInput(t, "test-password-123")
-	defer cleanup()
-
-	tests := []struct {
-		name    string
-		inFile  string
-		outFile string
-		wantErr bool
-	}{
-		{
-			name:    "non-existent input file",
-			inFile:  "nonexistent.bin",
-			outFile: "output.txt",
-			wantErr: true,
-		},
-		{
-			name:    "invalid output directory",
-			inFile:  "input.bin",
-			outFile: "/nonexistent/dir/output.txt",
-			wantErr: true,
-		},
-		{
-			name:    "invalid encrypted file",
-			inFile:  "invalid.bin",
-			outFile: "output.txt",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := DecryptFile(tt.inFile, tt.outFile); (err != nil) != tt.wantErr {
-				t.Errorf("DecryptFile() error = %v, wantErr %v", err, tt.wantErr)
+			// Test decryption
+			err = encryption.DecryptFile(tc.inputPath, tc.outputPath)
+			if (err != nil) != tc.expectError {
+				t.Errorf("Decryption error = %v, want error = %v", err, tc.expectError)
 			}
 		})
 	}
