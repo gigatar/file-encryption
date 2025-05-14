@@ -14,7 +14,16 @@ const (
 	parallelism = uint32(1)
 )
 
-func GetKey(salt []byte) ([]byte, error) {
+// DeriveKey derives a key from a password and salt using Argon2id
+func DeriveKey(password, salt []byte) []byte {
+	return argon2.IDKey(password, salt, timeCost, memoryCost, uint8(parallelism), 32)
+}
+
+// GetKeyFunc is the type for the key derivation function
+type GetKeyFunc func(salt []byte) ([]byte, error)
+
+// DefaultGetKey reads a password from stdin and derives a key
+func DefaultGetKey(salt []byte) ([]byte, error) {
 	var password []byte
 	fmt.Print("Enter password: ")
 
@@ -34,7 +43,9 @@ func GetKey(salt []byte) ([]byte, error) {
 
 	fmt.Println()
 
-	key := argon2.IDKey(password, salt, timeCost, memoryCost, uint8(parallelism), 32)
-
-	return key, nil
+	return DeriveKey(password, salt), nil
 }
+
+// GetKey is the function used to get the encryption key
+// It can be replaced in tests
+var GetKey GetKeyFunc = DefaultGetKey
